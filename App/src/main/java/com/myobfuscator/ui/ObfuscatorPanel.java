@@ -12,11 +12,13 @@ import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.File;
+import java.io.InputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
@@ -100,39 +102,56 @@ public class ObfuscatorPanel extends JPanel {
             File jarFile = chooser.getSelectedFile();
 
             try (JarFile jar = new JarFile(jarFile)) {
-                // 2) Найдём первый .class
-                String classEntry = null;
+                var classEntries = new ArrayList<String>();
                 Enumeration<JarEntry> ents = jar.entries();
                 while (ents.hasMoreElements()) {
                     JarEntry je = ents.nextElement();
                     if (je.getName().endsWith(".class")) {
-                        classEntry = je.getName();
-                        break;
+                        classEntries.add(je.getName());
                     }
                 }
-                if (classEntry == null) {
-                    JOptionPane.showMessageDialog(this, "В JAR нет .class-файлов", "Ошибка", JOptionPane.ERROR_MESSAGE);
+                if (classEntries.isEmpty()) {
+                    JOptionPane.showMessageDialog(this, "В JAR нет .class-файлов",
+                            "Ошибка", JOptionPane.ERROR_MESSAGE);
                     return;
                 }
 
-                // 3) Дизассемблируем через ASM
-                try (var is = jar.getInputStream(jar.getJarEntry(classEntry))) {
+                // 2) Предлагаем выбрать
+                String selected = (String) JOptionPane.showInputDialog(
+                        this,
+                        "Выберите класс для дизассемблера:",
+                        "Select Class",
+                        JOptionPane.PLAIN_MESSAGE,
+                        null,
+                        classEntries.toArray(new String[0]),
+                        classEntries.get(0)
+                );
+                if (selected == null) return; // отмена
+
+                // 3) Дизассемблируем выбранный
+                try (InputStream is = jar.getInputStream(jar.getJarEntry(selected))) {
                     ClassReader cr = new ClassReader(is);
                     StringWriter sw = new StringWriter();
-                    TraceClassVisitor tcv = new TraceClassVisitor(null, new Textifier(), new PrintWriter(sw));
+                    TraceClassVisitor tcv = new TraceClassVisitor(
+                            null, new Textifier(), new PrintWriter(sw)
+                    );
                     cr.accept(tcv, ClassReader.SKIP_FRAMES);
                     String disasm = sw.toString();
 
-                    // 4) Показываем в окне
+                    // 4) Показать в диалоге
                     JTextArea area = new JTextArea(disasm);
                     area.setEditable(false);
-                    JDialog dialog = new JDialog(SwingUtilities.getWindowAncestor(this), "Disassembly: " + classEntry);
+                    JDialog dialog = new JDialog(
+                            SwingUtilities.getWindowAncestor(this),
+                            "Disassembly: " + selected
+                    );
                     dialog.getContentPane().add(new JScrollPane(area));
                     dialog.setSize(800, 600);
                     dialog.setLocationRelativeTo(this);
                     dialog.setModal(true);
                     dialog.setVisible(true);
                 }
+
             } catch (Exception ex) {
                 ex.printStackTrace();
                 JOptionPane.showMessageDialog(this, "Ошибка: " + ex.getMessage(), "Ошибка", JOptionPane.ERROR_MESSAGE);

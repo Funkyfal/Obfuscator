@@ -33,6 +33,9 @@ public class RenamerTransformer implements ITransformer {
 
     @Override
     public void transform(ClassNode classNode) {
+        if (classNode.signature != null) {
+            classNode.signature = remapSignature(classNode.signature);
+        }
         // 1) Переименовать сам класс
         String oldName = classNode.name;
         String newName = classMap.get(oldName);
@@ -40,11 +43,28 @@ public class RenamerTransformer implements ITransformer {
             classNode.name = newName;
         }
 
-        // 2) Переименовать суперкласс
+        // 2) Поля
+        classNode.fields.forEach(fn -> {
+            if (fn.signature != null) {
+                fn.signature = remapSignature(fn.signature);
+            }
+        });
+
+        // 3) Методы
+        classNode.methods.forEach(mn -> {
+            if (mn.signature != null) {
+                mn.signature = remapSignature(mn.signature);
+            }
+            if (mn.exceptions != null) {
+                mn.exceptions.replaceAll(ex -> classMap.getOrDefault(ex, ex));
+            }
+        });
+
+        // 4) Переименовать суперкласс
         if (classMap.containsKey(classNode.superName)) {
             classNode.superName = classMap.get(classNode.superName);
         }
-        // 3) Переименовать интерфейсы
+        // 5) Переименовать интерфейсы
         for (int i = 0; i < classNode.interfaces.size(); i++) {
             String iface = classNode.interfaces.get(i);
             if (classMap.containsKey(iface)) {
@@ -52,7 +72,7 @@ public class RenamerTransformer implements ITransformer {
             }
         }
 
-        // 4) Переименовать все ссылочные инструкции
+        // 6) Переименовать все ссылочные инструкции
         classNode.methods.forEach(mn -> {
             mn.instructions.iterator().forEachRemaining(insn -> {
                 // Тип инструкций: FieldInsnNode, MethodInsnNode, TypeInsnNode, InvokeDynamicInsnNode, LdcInsnNode с Type
@@ -84,5 +104,12 @@ public class RenamerTransformer implements ITransformer {
 
     public Map<String, String> getClassMap() {
         return classMap;
+    }
+
+    private String remapSignature(String sig) {
+        for (Map.Entry<String, String> e : classMap.entrySet()) {
+            sig = sig.replace(e.getKey(), e.getValue());
+        }
+        return sig;
     }
 }
