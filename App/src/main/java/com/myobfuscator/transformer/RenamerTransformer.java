@@ -9,6 +9,7 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
 public class RenamerTransformer implements ITransformer {
+
     private final Map<String, String> classMap = new HashMap<>();
     private int classCounter = 0;
 
@@ -79,5 +80,9 @@ public class RenamerTransformer implements ITransformer {
     public void finish(ObfuscationContext ctx) {
         // Ничего не делаем
         System.out.println("[Renamer] done");
+    }
+
+    public Map<String, String> getClassMap() {
+        return classMap;
     }
 }

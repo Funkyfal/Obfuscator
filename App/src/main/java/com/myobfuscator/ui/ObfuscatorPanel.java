@@ -1,31 +1,48 @@
 package com.myobfuscator.ui;
 
 import com.myobfuscator.core.*;
-import com.myobfuscator.transformer.NoOpTransformer;
 import com.myobfuscator.transformer.RenamerTransformer;
+import org.objectweb.asm.ClassReader;
+
+import org.objectweb.asm.util.TraceClassVisitor;
+import org.objectweb.asm.util.Textifier;
 
 import javax.swing.*;
+import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.io.File;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Enumeration;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 
 public class ObfuscatorPanel extends JPanel {
-    private final JTextField inputField = new JTextField(30);
-    private final JTextField outputField = new JTextField(30);
+    private final JTextField inputField =
+            new JTextField("app/test-src/test-jars/HelloWorld.jar",30);
+    private final JTextField outputField =
+            new JTextField("app/test-src/test-jars/HelloWorld-obfus.jar",30);
     private final JCheckBox renamerCB = new JCheckBox("Rename");
     private final JCheckBox stringsCB = new JCheckBox("Encrypt Strings");
     private final JCheckBox cfCB      = new JCheckBox("Control-Flow");
     private final JCheckBox antiCB    = new JCheckBox("Anti-Debug");
     private final JButton runButton   = new JButton("Запустить");
+    private final JButton disasmButton = new JButton("Disassemble JAR");
 
     public ObfuscatorPanel() {
+        setPreferredSize(new Dimension(700, 200));
         add(new JLabel("Input JAR:"));  add(inputField);
         add(new JLabel("Output JAR:")); add(outputField);
-        add(renamerCB);   add(stringsCB);
-        add(cfCB);        add(antiCB);
+        add(renamerCB);
+        add(stringsCB);
+        add(cfCB);
+        add(antiCB);
         add(runButton);
+        add(disasmButton);
 
         runButton.addActionListener(new ActionListener() {
             @Override
@@ -34,7 +51,7 @@ public class ObfuscatorPanel extends JPanel {
                 Path output = Paths.get(outputField.getText());
 
                 var transformers = new java.util.ArrayList<ITransformer>();
-                //if (renamerCB.isSelected()) transformers.add(new NoOpTransformer());
+//                if (renamerCB.isSelected()) transformers.add(new NoOpTransformer());
                 if (renamerCB.isSelected()) transformers.add(new RenamerTransformer());
 //                if (stringsCB.isSelected())  transformers.add(new StringEncryptorTransformer());
 //                if (cfCB.isSelected())       transformers.add(new ControlFlowTransformer());
@@ -72,6 +89,53 @@ public class ObfuscatorPanel extends JPanel {
                         );
                     }
                 }.execute();
+            }
+        });
+
+        disasmButton.addActionListener(e -> {
+            // 1) Выбор JAR
+            JFileChooser chooser = new JFileChooser();
+            chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("JAR Files", "jar"));
+            if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
+            File jarFile = chooser.getSelectedFile();
+
+            try (JarFile jar = new JarFile(jarFile)) {
+                // 2) Найдём первый .class
+                String classEntry = null;
+                Enumeration<JarEntry> ents = jar.entries();
+                while (ents.hasMoreElements()) {
+                    JarEntry je = ents.nextElement();
+                    if (je.getName().endsWith(".class")) {
+                        classEntry = je.getName();
+                        break;
+                    }
+                }
+                if (classEntry == null) {
+                    JOptionPane.showMessageDialog(this, "В JAR нет .class-файлов", "Ошибка", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+
+                // 3) Дизассемблируем через ASM
+                try (var is = jar.getInputStream(jar.getJarEntry(classEntry))) {
+                    ClassReader cr = new ClassReader(is);
+                    StringWriter sw = new StringWriter();
+                    TraceClassVisitor tcv = new TraceClassVisitor(null, new Textifier(), new PrintWriter(sw));
+                    cr.accept(tcv, ClassReader.SKIP_FRAMES);
+                    String disasm = sw.toString();
+
+                    // 4) Показываем в окне
+                    JTextArea area = new JTextArea(disasm);
+                    area.setEditable(false);
+                    JDialog dialog = new JDialog(SwingUtilities.getWindowAncestor(this), "Disassembly: " + classEntry);
+                    dialog.getContentPane().add(new JScrollPane(area));
+                    dialog.setSize(800, 600);
+                    dialog.setLocationRelativeTo(this);
+                    dialog.setModal(true);
+                    dialog.setVisible(true);
+                }
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                JOptionPane.showMessageDialog(this, "Ошибка: " + ex.getMessage(), "Ошибка", JOptionPane.ERROR_MESSAGE);
             }
         });
     }
