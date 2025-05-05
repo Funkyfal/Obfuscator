@@ -96,7 +96,7 @@ public class ObfuscatorPanel extends JPanel {
 
         disasmButton.addActionListener(e -> {
             // 1) Выбор JAR
-            JFileChooser chooser = new JFileChooser();
+            JFileChooser chooser = new JFileChooser("app/test-src/test-jars");
             chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("JAR Files", "jar"));
             if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
             File jarFile = chooser.getSelectedFile();
