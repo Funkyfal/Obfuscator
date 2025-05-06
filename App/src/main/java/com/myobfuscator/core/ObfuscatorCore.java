@@ -1,10 +1,12 @@
 package com.myobfuscator.core;
 
 import com.myobfuscator.transformer.RenamerTransformer;
+import com.myobfuscator.transformer.StringEncryptorTransformer;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.tree.ClassNode;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.*;
 import java.util.Enumeration;
@@ -60,6 +62,22 @@ public class ObfuscatorCore {
             JarEntry mfEntry = new JarEntry(JarFile.MANIFEST_NAME);
             jarOut.putNextEntry(mfEntry);
             manifest.write(jarOut);
+            for (ITransformer t : ctx.getTransformers()) {
+                if (t instanceof StringEncryptorTransformer s) {
+                    byte[] decryptorBytes;
+                    try {
+                        decryptorBytes = s.generateDecryptorClass();
+                    } catch (IOException e) {
+                        throw new RuntimeException("Failed to generate StringDecryptor", e);
+                    }
+                    // Путь внутри JAR: com/myobfuscator/util/StringDecryptor.class
+                    JarEntry entry = new JarEntry("com/myobfuscator/util/StringDecryptor.class");
+                    jarOut.putNextEntry(entry);
+                    jarOut.write(decryptorBytes);
+                    jarOut.closeEntry();
+                    System.out.println("[Core] Injected patched StringDecryptor");
+                }
+            }
             jarOut.closeEntry();
 
             // 3.2) Копируем и обрабатываем остальные записи, пропуская старый манифест

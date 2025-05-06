@@ -2,6 +2,7 @@ package com.myobfuscator.ui;
 
 import com.myobfuscator.core.*;
 import com.myobfuscator.transformer.RenamerTransformer;
+import com.myobfuscator.transformer.StringEncryptorTransformer;
 import org.objectweb.asm.ClassReader;
 
 import org.objectweb.asm.util.TraceClassVisitor;
@@ -25,9 +26,9 @@ import java.util.jar.JarFile;
 
 public class ObfuscatorPanel extends JPanel {
     private final JTextField inputField =
-            new JTextField("app/test-src/test-jars/HelloWorld.jar",30);
+            new JTextField("app/test-src/test-jars/StringTest.jar",30);
     private final JTextField outputField =
-            new JTextField("app/test-src/test-jars/HelloWorld-obfus.jar",30);
+            new JTextField("app/test-src/test-jars/StringTest-obfus.jar",30);
     private final JCheckBox renamerCB = new JCheckBox("Rename");
     private final JCheckBox stringsCB = new JCheckBox("Encrypt Strings");
     private final JCheckBox cfCB      = new JCheckBox("Control-Flow");
@@ -55,7 +56,7 @@ public class ObfuscatorPanel extends JPanel {
                 var transformers = new java.util.ArrayList<ITransformer>();
 //                if (renamerCB.isSelected()) transformers.add(new NoOpTransformer());
                 if (renamerCB.isSelected()) transformers.add(new RenamerTransformer());
-//                if (stringsCB.isSelected())  transformers.add(new StringEncryptorTransformer());
+                if (stringsCB.isSelected())  transformers.add(new StringEncryptorTransformer());
 //                if (cfCB.isSelected())       transformers.add(new ControlFlowTransformer());
 //                if (antiCB.isSelected())     transformers.add(new AntiDebugTransformer());
 
