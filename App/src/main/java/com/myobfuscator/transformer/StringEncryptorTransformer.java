@@ -3,7 +3,6 @@ package com.myobfuscator.transformer;
 import com.myobfuscator.core.ITransformer;
 import com.myobfuscator.core.ObfuscationContext;
 import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.*;
 
@@ -22,6 +21,7 @@ public class StringEncryptorTransformer implements ITransformer {
     private SecretKey aesKey;
     private Cipher encryptCipher;
     private String base64Key;
+    private final String decryptorInternal = "com/myobfuscator/util/StringDecryptor";
 
     @Override
     public void init(ObfuscationContext context) throws Exception {
@@ -41,30 +41,25 @@ public class StringEncryptorTransformer implements ITransformer {
 
     @Override
     public void transform(ClassNode classNode) {
+        if (decryptorInternal.equals(classNode.name)) return;
+        // Шифрование литералов (как ранее)
         for (MethodNode mn : classNode.methods) {
             InsnList insns = mn.instructions;
             if (insns == null) continue;
 
-            // Сначала накопим все LDC-инструкции со String
             List<AbstractInsnNode> toReplace = new ArrayList<>();
             for (AbstractInsnNode insn : insns.toArray()) {
                 if (insn instanceof LdcInsnNode ldc && ldc.cst instanceof String) {
                     toReplace.add(insn);
                 }
             }
-
-            // А теперь для каждой — сделать замену
             for (AbstractInsnNode insn : toReplace) {
                 LdcInsnNode ldc = (LdcInsnNode) insn;
                 String original = (String) ldc.cst;
                 try {
-                    // 1) Шифруем
-                    byte[] encrypted = encryptCipher.doFinal(
-                            original.getBytes(StandardCharsets.UTF_8)
-                    );
+                    byte[] encrypted = encryptCipher.doFinal(original.getBytes(StandardCharsets.UTF_8));
                     String b64 = Base64.getEncoder().encodeToString(encrypted);
 
-                    // 2) Готовим новую инструкцию: LDC "base64" + INVOKESTATIC decryptBase64
                     InsnList repl = new InsnList();
                     repl.add(new LdcInsnNode(b64));
                     repl.add(new MethodInsnNode(
@@ -75,9 +70,7 @@ public class StringEncryptorTransformer implements ITransformer {
                             false
                     ));
 
-                    // 3) Вставляем _перед_ старым ldc, чтобы не сбить порядок
                     insns.insertBefore(insn, repl);
-                    // 4) Удаляем только сам старый ldc
                     insns.remove(insn);
                 } catch (Exception e) {
                     throw new RuntimeException("Encryption failed for: " + original, e);
@@ -86,49 +79,49 @@ public class StringEncryptorTransformer implements ITransformer {
         }
     }
 
-
     @Override
     public void finish(ObfuscationContext context) {
-        // при необходимости: вывести/сохранить ключ
     }
 
-    public byte[] generateDecryptorClass() throws IOException {
-        try (InputStream template =
-                     getClass().getResourceAsStream("/templates/StringDecryptorTemplate.class")) {
-
+    /**
+     * Возвращает ClassNode для StringDecryptor, с патчем ключа и ldc в <clinit>
+     */
+    public ClassNode generateDecryptorNode() throws IOException {
+        try (InputStream template = getClass().getResourceAsStream(
+                "/templates/StringDecryptorTemplate.class")) {
             ClassReader cr = new ClassReader(template);
             ClassNode cn = new ClassNode();
             cr.accept(cn, 0);
 
-            // 1) Патчим ConstantValue у поля BASE64_KEY
-            for (FieldNode fn : cn.fields) {
-                if (fn.name.equals("BASE64_KEY")) {
-                    fn.value = base64Key;
-                    break;
-                }
-            }
-
-            // 2) Патчим LdcInsnNode внутри <clinit>, заменяя literal "{{BASE64_KEY}}"
-            for (MethodNode mn : cn.methods) {
-                if ("<clinit>".equals(mn.name)) {
-                    for (AbstractInsnNode insn : mn.instructions.toArray()) {
-                        if (insn instanceof LdcInsnNode ldc
-                                && "{{BASE64_KEY}}".equals(ldc.cst)) {
-                            ldc.cst = base64Key;
-                        }
-                    }
-                }
-            }
-
-            // 3) Пишем класс обратно
-            ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
-            cn.accept(cw);
-            return cw.toByteArray();
+            patchDecryptor(cn);
+            return cn;
         }
     }
 
+    /**
+     * Патчит поле BASE64_KEY и LDC-инструкции в методе <clinit>
+     */
+    private void patchDecryptor(ClassNode cn) {
+        // Патчим значение поля BASE64_KEY
+        for (FieldNode fn : cn.fields) {
+            if ("BASE64_KEY".equals(fn.name)) {
+                fn.value = base64Key;
+                break;
+            }
+        }
+        // Заменяем LDC-литералы в <clinit>
+        for (MethodNode mn : cn.methods) {
+            if ("<clinit>".equals(mn.name)) {
+                for (AbstractInsnNode insn : mn.instructions.toArray()) {
+                    if (insn instanceof LdcInsnNode ldc
+                            && "{{BASE64_KEY}}".equals(ldc.cst)) {
+                        ldc.cst = base64Key;
+                    }
+                }
+            }
+        }
+    }
 
-    // Геттер для base64Key, если понадобится в GUI
     public String getBase64Key() {
         return base64Key;
     }

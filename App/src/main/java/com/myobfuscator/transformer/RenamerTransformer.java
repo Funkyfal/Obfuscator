@@ -1,12 +1,14 @@
 package com.myobfuscator.transformer;
 
 import com.myobfuscator.core.ITransformer;
+import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.tree.ClassNode;
 import com.myobfuscator.core.ObfuscationContext;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.*;
 
+import java.io.InputStream;
 import java.util.*;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
@@ -32,6 +34,19 @@ public class RenamerTransformer implements ITransformer {
             }
         }
         System.out.println("[Renamer] mapped " + classMap.size() + " classes");
+
+        try (InputStream tmpl = getClass()
+                .getResourceAsStream("/templates/StringDecryptorTemplate.class")) {
+            if (tmpl != null) {
+                ClassReader cr = new ClassReader(tmpl);
+                String decryptorName = cr.getClassName(); // "com/myobfuscator/util/StringDecryptor"
+                // Присваиваем следующее имя:
+                String newName = "C" + (classCounter++);
+                classMap.put(decryptorName, newName);
+                System.out.println("[Renamer] added decryptor: " +
+                        decryptorName + " -> " + newName);
+            }
+        }
     }
 
     @Override

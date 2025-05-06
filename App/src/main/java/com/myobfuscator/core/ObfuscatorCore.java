@@ -6,12 +6,12 @@ import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.tree.ClassNode;
 
-import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.*;
-import java.util.Enumeration;
+import java.util.*;
 import java.util.jar.*;
 
+//TODO: УБРАТЬ КОММЕНТАРИИ ПРИ ДИЗАССЕМБЛИРОВАНИИ
 public class ObfuscatorCore {
     private final ObfuscationContext ctx;
 
@@ -25,116 +25,115 @@ public class ObfuscatorCore {
             t.init(ctx);
         }
 
+        // --- новая вставка: переставляем StringEncryptor перед Renamer ---
+        ctx.getTransformers().sort((a, b) -> {
+            if (a instanceof StringEncryptorTransformer && b instanceof RenamerTransformer) return -1;
+            if (a instanceof RenamerTransformer     && b instanceof StringEncryptorTransformer) return 1;
+            return 0;
+        });
+
         // 2) Читаем входной JAR и его манифест
         Manifest manifest;
         try (JarFile jarIn = new JarFile(ctx.getInputJar().toFile())) {
             manifest = jarIn.getManifest();
         }
 
-        // 2.1) Если есть RenamerTransformer, правим Main-Class
+        // 3) Собираем все ClassNode
+        List<ClassNode> allClasses = new ArrayList<>();
+
+        // 3.1) Добавляем StringDecryptor, если нужен
         for (ITransformer t : ctx.getTransformers()) {
-            if (t instanceof com.myobfuscator.transformer.RenamerTransformer ren) {
-                String original = manifest.getMainAttributes()
-                        .getValue(Attributes.Name.MAIN_CLASS);
-                // точечное имя -> внутреннее
-                String internalOld = original.replace('.', '/');
-                String internalNew = ren.getClassMap().get(internalOld);
-                if (internalNew != null) {
-                    // ставим обратно в точечном формате
-                    manifest.getMainAttributes().put(
-                            Attributes.Name.MAIN_CLASS,
-                            internalNew.replace('/', '.')
-                    );
-                    System.out.println("[Core] Updated Main-Class to " +
-                            manifest.getMainAttributes().getValue(Attributes.Name.MAIN_CLASS));
+            if (t instanceof StringEncryptorTransformer s) {
+                ClassNode decryptorNode = s.generateDecryptorNode();
+                allClasses.add(decryptorNode);
+                System.out.println("[Core] Injected raw StringDecryptor");
+            }
+        }
+
+        // 3.2) Добавляем остальные классы из входного JAR
+        try (JarFile jarIn = new JarFile(ctx.getInputJar().toFile())) {
+            Enumeration<JarEntry> entries = jarIn.entries();
+            while (entries.hasMoreElements()) {
+                JarEntry entry = entries.nextElement();
+                if (!entry.getName().endsWith(".class")) continue;
+                InputStream is = jarIn.getInputStream(entry);
+                ClassReader cr = new ClassReader(is);
+                ClassNode node = new ClassNode();
+                cr.accept(node, 0);
+                allClasses.add(node);
+            }
+        }
+
+        // 4) Применяем трансформеры
+        for (ClassNode cn : allClasses) {
+            for (ITransformer t : ctx.getTransformers()) {
+                t.transform(cn);
+            }
+        }
+
+        // 5) Завершаем работу трансформеров
+        for (ITransformer t : ctx.getTransformers()) {
+            t.finish(ctx);
+        }
+
+        // 6) Обновляем Main-Class, если есть Renamer
+        for (ITransformer t : ctx.getTransformers()) {
+            if (t instanceof RenamerTransformer ren) {
+                String original = manifest.getMainAttributes().getValue(Attributes.Name.MAIN_CLASS);
+                if (original != null) {
+                    String internalOld = original.replace('.', '/');
+                    String internalNew = ren.getClassMap().get(internalOld);
+                    if (internalNew != null) {
+                        manifest.getMainAttributes().put(
+                                Attributes.Name.MAIN_CLASS,
+                                internalNew.replace('/', '.')
+                        );
+                        System.out.println("[Core] Updated Main-Class to " +
+                                manifest.getMainAttributes().getValue(Attributes.Name.MAIN_CLASS));
+                    }
                 }
             }
         }
 
-        // 3) Открываем выходной JAR и сразу записываем исправленный манифест
+        // 7) Пишем результат в JAR
         Files.createDirectories(ctx.getOutputJar().getParent());
         try (JarOutputStream jarOut = new JarOutputStream(
                 Files.newOutputStream(ctx.getOutputJar(),
                         StandardOpenOption.CREATE,
-                        StandardOpenOption.TRUNCATE_EXISTING))
-        ) {
-            // 3.1) Записываем новый манифест первым
-            JarEntry mfEntry = new JarEntry(JarFile.MANIFEST_NAME);
-            jarOut.putNextEntry(mfEntry);
-            manifest.write(jarOut);
-            for (ITransformer t : ctx.getTransformers()) {
-                if (t instanceof StringEncryptorTransformer s) {
-                    byte[] decryptorBytes;
-                    try {
-                        decryptorBytes = s.generateDecryptorClass();
-                    } catch (IOException e) {
-                        throw new RuntimeException("Failed to generate StringDecryptor", e);
-                    }
-                    // Путь внутри JAR: com/myobfuscator/util/StringDecryptor.class
-                    JarEntry entry = new JarEntry("com/myobfuscator/util/StringDecryptor.class");
-                    jarOut.putNextEntry(entry);
-                    jarOut.write(decryptorBytes);
-                    jarOut.closeEntry();
-                    System.out.println("[Core] Injected patched StringDecryptor");
-                }
-            }
-            jarOut.closeEntry();
+                        StandardOpenOption.TRUNCATE_EXISTING),
+                manifest
+        )) {
+            Set<String> written = new HashSet<>();
 
-            // 3.2) Копируем и обрабатываем остальные записи, пропуская старый манифест
+            for (ClassNode cn : allClasses) {
+                String name = cn.name + ".class";
+                if (written.contains(name)) continue;
+                written.add(name);
+
+                JarEntry entry = new JarEntry(name);
+                jarOut.putNextEntry(entry);
+
+                ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
+                cn.accept(cw);
+                jarOut.write(cw.toByteArray());
+                jarOut.closeEntry();
+            }
+
+            // 7.1) Копируем ресурсы из оригинального JAR
             try (JarFile jarIn = new JarFile(ctx.getInputJar().toFile())) {
                 Enumeration<JarEntry> entries = jarIn.entries();
                 while (entries.hasMoreElements()) {
                     JarEntry entry = entries.nextElement();
-                    if (JarFile.MANIFEST_NAME.equals(entry.getName())) {
-                        continue; // пропускаем, уже записали
-                    }
+                    if (entry.getName().endsWith(".class") || entry.getName().equals(JarFile.MANIFEST_NAME))
+                        continue;
+                    if (written.contains(entry.getName())) continue;
+
                     InputStream is = jarIn.getInputStream(entry);
-
-                    if (entry.getName().endsWith(".class")) {
-                        // 1) прочитать ClassNode
-                        ClassReader cr = new ClassReader(is);
-                        ClassNode node = new ClassNode();
-                        cr.accept(node, 0);
-
-                        // 2) применить трансформеры (переименуют node.name и т.п.)
-                        for (ITransformer t : ctx.getTransformers()) {
-                            t.transform(node);
-                        }
-
-                        // 3) определить новое имя файла
-                        String oldEntryName = entry.getName();                       // "HelloWorld.class"
-                        String oldInternal = oldEntryName.replaceAll("\\.class$", ""); // "HelloWorld"
-                        String newInternal = null;
-                        for (ITransformer t : ctx.getTransformers()) {
-                            if (t instanceof RenamerTransformer ren) {
-                                newInternal = ren.getClassMap().get(oldInternal);
-                                break;
-                            }
-                        }
-                        String newEntryName = (newInternal != null ? newInternal + ".class" : oldEntryName);
-
-                        // 4) записать в JAR под новым именем
-                        JarEntry outEntry = new JarEntry(newEntryName);
-                        jarOut.putNextEntry(outEntry);
-
-                        // 5) написать байты
-                        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
-                        node.accept(cw);
-                        jarOut.write(cw.toByteArray());
-
-                        jarOut.closeEntry();
-                    } else {
-                        // ресурсы копируем напрямую
-                        jarOut.write(is.readAllBytes());
-                    }
+                    jarOut.putNextEntry(new JarEntry(entry.getName()));
+                    jarOut.write(is.readAllBytes());
                     jarOut.closeEntry();
                 }
             }
-        }
-
-        // 4) Завершаем работу трансформеров
-        for (ITransformer t : ctx.getTransformers()) {
-            t.finish(ctx);
         }
     }
 }
