@@ -1,6 +1,7 @@
 package com.myobfuscator.ui;
 
 import com.myobfuscator.core.*;
+import com.myobfuscator.transformer.ControlFlowTransformer;
 import com.myobfuscator.transformer.RenamerTransformer;
 import com.myobfuscator.transformer.StringEncryptorTransformer;
 import org.objectweb.asm.ClassReader;
@@ -26,15 +27,17 @@ import java.util.jar.JarFile;
 
 public class ObfuscatorPanel extends JPanel {
     private final JTextField inputField =
-            new JTextField("app/test-src/test-jars/StringTest.jar",30);
+            new JTextField("app/test-src/test-jars/CFTest.jar",30);
     private final JTextField outputField =
-            new JTextField("app/test-src/test-jars/StringTest-obfus.jar",30);
+            new JTextField("app/test-src/test-jars/CFTest-obfus.jar",30);
     private final JCheckBox renamerCB = new JCheckBox("Rename");
     private final JCheckBox stringsCB = new JCheckBox("Encrypt Strings");
     private final JCheckBox cfCB      = new JCheckBox("Control-Flow");
     private final JCheckBox antiCB    = new JCheckBox("Anti-Debug");
     private final JButton runButton   = new JButton("Запустить");
     private final JButton disasmButton = new JButton("Disassemble JAR");
+    private final JLabel deadLabel    = new JLabel("Dead branches:");
+    private final JSpinner deadSpinner = new JSpinner(new SpinnerNumberModel(2, 0, 20, 1));
 
     public ObfuscatorPanel() {
         setPreferredSize(new Dimension(700, 200));
@@ -44,8 +47,22 @@ public class ObfuscatorPanel extends JPanel {
         add(stringsCB);
         add(cfCB);
         add(antiCB);
+
+        deadLabel.setVisible(false);
+        deadSpinner.setVisible(false);
+        add(deadLabel);
+        add(deadSpinner);
+
         add(runButton);
         add(disasmButton);
+
+        cfCB.addItemListener(e -> {
+            boolean enabled = cfCB.isSelected();
+            deadLabel.setVisible(enabled);
+            deadSpinner.setVisible(enabled);
+            revalidate();
+            repaint();
+        });
 
         runButton.addActionListener(new ActionListener() {
             @Override
@@ -57,10 +74,16 @@ public class ObfuscatorPanel extends JPanel {
 //                if (renamerCB.isSelected()) transformers.add(new NoOpTransformer());
                 if (renamerCB.isSelected()) transformers.add(new RenamerTransformer());
                 if (stringsCB.isSelected())  transformers.add(new StringEncryptorTransformer());
-//                if (cfCB.isSelected())       transformers.add(new ControlFlowTransformer());
+                if (cfCB.isSelected())       transformers.add(new ControlFlowTransformer());
 //                if (antiCB.isSelected())     transformers.add(new AntiDebugTransformer());
 
-                ObfuscationContext ctx = new ObfuscationContext(input, output, transformers);
+                int deadCount = cfCB.isSelected()
+                        ? (Integer) deadSpinner.getValue()
+                        : 0;
+
+                ObfuscationContext ctx = new ObfuscationContext(
+                        input, output, transformers, deadCount
+                );
 
                 // Запуск в фоне, чтобы не блокировать GUI
                 new SwingWorker<Void, Void>() {

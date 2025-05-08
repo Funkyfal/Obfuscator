@@ -1,5 +1,7 @@
+// src/main/java/com/myobfuscator/core/ObfuscatorCore.java
 package com.myobfuscator.core;
 
+import com.myobfuscator.transformer.ControlFlowTransformer;
 import com.myobfuscator.transformer.RenamerTransformer;
 import com.myobfuscator.transformer.StringEncryptorTransformer;
 import org.objectweb.asm.ClassReader;
@@ -11,7 +13,6 @@ import java.nio.file.*;
 import java.util.*;
 import java.util.jar.*;
 
-//TODO: УБРАТЬ КОММЕНТАРИИ ПРИ ДИЗАССЕМБЛИРОВАНИИ
 public class ObfuscatorCore {
     private final ObfuscationContext ctx;
 
@@ -25,7 +26,7 @@ public class ObfuscatorCore {
             t.init(ctx);
         }
 
-        // --- новая вставка: переставляем StringEncryptor перед Renamer ---
+        // Обеспечиваем порядок StringEncryptor → Renamer
         ctx.getTransformers().sort((a, b) -> {
             if (a instanceof StringEncryptorTransformer && b instanceof RenamerTransformer) return -1;
             if (a instanceof RenamerTransformer     && b instanceof StringEncryptorTransformer) return 1;
@@ -41,96 +42,87 @@ public class ObfuscatorCore {
         // 3) Собираем все ClassNode
         List<ClassNode> allClasses = new ArrayList<>();
 
-        // 3.1) Добавляем StringDecryptor, если нужен
+        // 3.1) Inject StringDecryptor if needed
         for (ITransformer t : ctx.getTransformers()) {
             if (t instanceof StringEncryptorTransformer s) {
-                ClassNode decryptorNode = s.generateDecryptorNode();
-                allClasses.add(decryptorNode);
-                System.out.println("[Core] Injected raw StringDecryptor");
+                allClasses.add(s.generateDecryptorNode());
             }
         }
 
-        // 3.2) Добавляем остальные классы из входного JAR
+        // 3.2) Load classes from JAR
         try (JarFile jarIn = new JarFile(ctx.getInputJar().toFile())) {
             Enumeration<JarEntry> entries = jarIn.entries();
             while (entries.hasMoreElements()) {
                 JarEntry entry = entries.nextElement();
                 if (!entry.getName().endsWith(".class")) continue;
-                InputStream is = jarIn.getInputStream(entry);
-                ClassReader cr = new ClassReader(is);
-                ClassNode node = new ClassNode();
-                cr.accept(node, 0);
-                allClasses.add(node);
+                try (InputStream is = jarIn.getInputStream(entry)) {
+                    ClassReader cr = new ClassReader(is);
+                    ClassNode node = new ClassNode();
+                    // expand frames so we can insert instructions safely
+                    cr.accept(node, ClassReader.EXPAND_FRAMES | ClassReader.SKIP_DEBUG);
+                    allClasses.add(node);
+                }
             }
         }
 
-        // 4) Применяем трансформеры
+        // 4) Apply transformers
         for (ClassNode cn : allClasses) {
             for (ITransformer t : ctx.getTransformers()) {
                 t.transform(cn);
             }
         }
 
-        // 5) Завершаем работу трансформеров
+        // 5) Finish
         for (ITransformer t : ctx.getTransformers()) {
             t.finish(ctx);
         }
 
-        // 6) Обновляем Main-Class, если есть Renamer
+        // 6) Update Main-Class if renamed
         for (ITransformer t : ctx.getTransformers()) {
             if (t instanceof RenamerTransformer ren) {
-                String original = manifest.getMainAttributes().getValue(Attributes.Name.MAIN_CLASS);
-                if (original != null) {
-                    String internalOld = original.replace('.', '/');
-                    String internalNew = ren.getClassMap().get(internalOld);
-                    if (internalNew != null) {
-                        manifest.getMainAttributes().put(
-                                Attributes.Name.MAIN_CLASS,
-                                internalNew.replace('/', '.')
+                String orig = manifest.getMainAttributes().getValue(Attributes.Name.MAIN_CLASS);
+                if (orig != null) {
+                    String inOld = orig.replace('.', '/');
+                    String inNew = ren.getClassMap().get(inOld);
+                    if (inNew != null) {
+                        manifest.getMainAttributes().putValue(
+                                Attributes.Name.MAIN_CLASS.toString(),
+                                inNew.replace('/', '.')
                         );
-                        System.out.println("[Core] Updated Main-Class to " +
-                                manifest.getMainAttributes().getValue(Attributes.Name.MAIN_CLASS));
                     }
                 }
             }
         }
 
-        // 7) Пишем результат в JAR
+        // 7) Write out JAR
         Files.createDirectories(ctx.getOutputJar().getParent());
         try (JarOutputStream jarOut = new JarOutputStream(
                 Files.newOutputStream(ctx.getOutputJar(),
-                        StandardOpenOption.CREATE,
-                        StandardOpenOption.TRUNCATE_EXISTING),
-                manifest
-        )) {
-            Set<String> written = new HashSet<>();
+                        StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING),
+                manifest)) {
 
+            Set<String> written = new HashSet<>();
             for (ClassNode cn : allClasses) {
                 String name = cn.name + ".class";
-                if (written.contains(name)) continue;
-                written.add(name);
-
-                JarEntry entry = new JarEntry(name);
-                jarOut.putNextEntry(entry);
-
-                ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
-                cn.accept(cw);
-                jarOut.write(cw.toByteArray());
-                jarOut.closeEntry();
+                if (written.add(name)) {
+                    jarOut.putNextEntry(new JarEntry(name));
+                    ClassWriter cw = new ClassWriter(
+                            ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS
+                    );
+                    cn.accept(cw);
+                    jarOut.write(cw.toByteArray());
+                    jarOut.closeEntry();
+                }
             }
-
-            // 7.1) Копируем ресурсы из оригинального JAR
+            // copy resources
             try (JarFile jarIn = new JarFile(ctx.getInputJar().toFile())) {
-                Enumeration<JarEntry> entries = jarIn.entries();
-                while (entries.hasMoreElements()) {
-                    JarEntry entry = entries.nextElement();
-                    if (entry.getName().endsWith(".class") || entry.getName().equals(JarFile.MANIFEST_NAME))
-                        continue;
+                for (Enumeration<JarEntry> e = jarIn.entries(); e.hasMoreElements();) {
+                    JarEntry entry = e.nextElement();
+                    if (entry.getName().endsWith(".class") ||
+                            entry.getName().equals(JarFile.MANIFEST_NAME)) continue;
                     if (written.contains(entry.getName())) continue;
-
-                    InputStream is = jarIn.getInputStream(entry);
                     jarOut.putNextEntry(new JarEntry(entry.getName()));
-                    jarOut.write(is.readAllBytes());
+                    jarOut.write(jarIn.getInputStream(entry).readAllBytes());
                     jarOut.closeEntry();
                 }
             }
