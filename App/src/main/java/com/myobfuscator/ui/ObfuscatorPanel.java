@@ -1,6 +1,7 @@
 package com.myobfuscator.ui;
 
 import com.myobfuscator.core.*;
+import com.myobfuscator.transformer.AntiDebugTransformer;
 import com.myobfuscator.transformer.ControlFlowTransformer;
 import com.myobfuscator.transformer.RenamerTransformer;
 import com.myobfuscator.transformer.StringEncryptorTransformer;
@@ -75,7 +76,7 @@ public class ObfuscatorPanel extends JPanel {
                 if (renamerCB.isSelected()) transformers.add(new RenamerTransformer());
                 if (stringsCB.isSelected())  transformers.add(new StringEncryptorTransformer());
                 if (cfCB.isSelected())       transformers.add(new ControlFlowTransformer());
-//                if (antiCB.isSelected())     transformers.add(new AntiDebugTransformer());
+                if (antiCB.isSelected())     transformers.add(new AntiDebugTransformer());
 
                 int deadCount = cfCB.isSelected()
                         ? (Integer) deadSpinner.getValue()

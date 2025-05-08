@@ -125,4 +125,6 @@ public class StringEncryptorTransformer implements ITransformer {
     public String getBase64Key() {
         return base64Key;
     }
+
+    public Cipher getEncryptCipher() { return encryptCipher; }
 }
