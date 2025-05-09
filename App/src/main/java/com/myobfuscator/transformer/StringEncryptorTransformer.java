@@ -87,12 +87,14 @@ public class StringEncryptorTransformer implements ITransformer {
      * Возвращает ClassNode для StringDecryptor, с патчем ключа и ldc в <clinit>
      */
     public ClassNode generateDecryptorNode() throws IOException {
-        try (InputStream template = getClass().getResourceAsStream(
-                "/templates/StringDecryptorTemplate.class")) {
+        try (InputStream template = getClass()
+                .getResourceAsStream("/templates/StringDecryptorTemplate.class")) {
+            if (template == null) {
+                throw new IllegalStateException("Не найден шаблон StringDecryptorTemplate.class в /templates");
+            }
             ClassReader cr = new ClassReader(template);
             ClassNode cn = new ClassNode();
             cr.accept(cn, 0);
-
             patchDecryptor(cn);
             return cn;
         }

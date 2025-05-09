@@ -26,25 +26,30 @@ public class RenamerTransformer implements ITransformer {
             while (entries.hasMoreElements()) {
                 JarEntry entry = entries.nextElement();
                 if (!entry.getName().endsWith(".class")) continue;
-                // 2) Внутреннее имя класса (слеши), без .class
                 String internalName = entry.getName().replaceAll("\\.class$", "");
-                // 3) Сгенерировать новое короткое имя: C0, C1, C2, ...
-                String newName = "C" + (classCounter++);
-                classMap.put(internalName, newName);
+                classMap.put(internalName, "C" + (classCounter++));
             }
         }
-        System.out.println("[Renamer] mapped " + classMap.size() + " classes");
 
-        try (InputStream tmpl = getClass()
-                .getResourceAsStream("/templates/StringDecryptorTemplate.class")) {
-            if (tmpl != null) {
-                ClassReader cr = new ClassReader(tmpl);
-                String decryptorName = cr.getClassName(); // "com/myobfuscator/util/StringDecryptor"
-                // Присваиваем следующее имя:
+        // 2) Жёстко добавляем StringDecryptor в classMap
+        String decryptorInternal = "com/myobfuscator/util/StringDecryptor";
+        String decryptorNewName = "C" + (classCounter++);
+        classMap.put(decryptorInternal, decryptorNewName);
+        System.out.println("[Renamer] forced mapping for StringDecryptor: "
+                + decryptorInternal + " -> " + decryptorNewName);
+
+
+        try (InputStream bind = getClass()
+                .getResourceAsStream("/templates/SystemBindingUtil.class")) {
+            if (bind != null) {
+                ClassReader cr = new ClassReader(bind);
+                String utilName = cr.getClassName(); // com/myobfuscator/protection/SystemBindingUtil
                 String newName = "C" + (classCounter++);
-                classMap.put(decryptorName, newName);
-                System.out.println("[Renamer] added decryptor: " +
-                        decryptorName + " -> " + newName);
+                classMap.put(utilName, newName);
+                System.out.println("[Renamer] added binding util: " +
+                        utilName + " -> " + newName);
+            } else {
+                System.err.println("[Renamer] WARNING: SystemBindingUtil.class not found in /templates/");
             }
         }
     }

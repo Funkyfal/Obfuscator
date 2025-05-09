@@ -1,10 +1,7 @@
 package com.myobfuscator.ui;
 
 import com.myobfuscator.core.*;
-import com.myobfuscator.transformer.AntiDebugTransformer;
-import com.myobfuscator.transformer.ControlFlowTransformer;
-import com.myobfuscator.transformer.RenamerTransformer;
-import com.myobfuscator.transformer.StringEncryptorTransformer;
+import com.myobfuscator.transformer.*;
 import org.objectweb.asm.ClassReader;
 
 import org.objectweb.asm.util.TraceClassVisitor;
@@ -31,6 +28,7 @@ public class ObfuscatorPanel extends JPanel {
             new JTextField("app/test-src/test-jars/CFTest.jar",30);
     private final JTextField outputField =
             new JTextField("app/test-src/test-jars/CFTest-obfus.jar",30);
+    private final JCheckBox binderCB = new JCheckBox("Bind to PC");
     private final JCheckBox renamerCB = new JCheckBox("Rename");
     private final JCheckBox stringsCB = new JCheckBox("Encrypt Strings");
     private final JCheckBox cfCB      = new JCheckBox("Control-Flow");
@@ -45,6 +43,7 @@ public class ObfuscatorPanel extends JPanel {
         add(new JLabel("Input JAR:"));  add(inputField);
         add(new JLabel("Output JAR:")); add(outputField);
         add(renamerCB);
+        add(binderCB);
         add(stringsCB);
         add(cfCB);
         add(antiCB);
@@ -72,7 +71,7 @@ public class ObfuscatorPanel extends JPanel {
                 Path output = Paths.get(outputField.getText());
 
                 var transformers = new java.util.ArrayList<ITransformer>();
-//                if (renamerCB.isSelected()) transformers.add(new NoOpTransformer());
+                if (binderCB.isSelected()) transformers.add(new BindingTransformer());
                 if (renamerCB.isSelected()) transformers.add(new RenamerTransformer());
                 if (stringsCB.isSelected())  transformers.add(new StringEncryptorTransformer());
                 if (cfCB.isSelected())       transformers.add(new ControlFlowTransformer());
