@@ -5,12 +5,14 @@ import java.net.NetworkInterface;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.*;
 
 public class SystemBindingUtil {
     private static final Path CONFIG_DIR  = Paths.get(System.getProperty("user.home"), ".myapp");
     private static final Path TIME_FILE   = CONFIG_DIR.resolve("install_time.txt");
+    private static final Path PASS_FILE = CONFIG_DIR.resolve("password.dat");
 
     /** Собираем UUID корневого тома как «серийник диска» */
     private static String getDiskSerial() {
@@ -124,6 +126,42 @@ public class SystemBindingUtil {
             return hex.toString();
         } catch (Exception e) {
             return "";
+        }
+    }
+
+    /** Вызывается при первом запуске: */
+    public static void setupPassword() {
+        try {
+            if (Files.notExists(PASS_FILE)) {
+                Files.createDirectories(CONFIG_DIR);
+                // генерируем случайный пароль
+                String pwd = Long.toHexString(new SecureRandom().nextLong());
+                // или попросить пользователя ввести: Console.readPassword()
+                String salted = PasswordUtil.generateSaltedHash(pwd);
+                Files.writeString(PASS_FILE, salted, StandardOpenOption.CREATE_NEW);
+                System.out.println("Your password is: " + pwd);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /** Проверяет пароль при запуске: */
+    public static void checkPassword() {
+        try {
+            String stored = Files.readString(PASS_FILE).trim();
+            Console console = System.console();
+            if (console == null) throw new IllegalStateException("No console");
+            char[] input = console.readPassword("Enter application password: ");
+            if (!PasswordUtil.verify(new String(input), stored)) {
+                System.err.println("Wrong password. Exiting.");
+                System.exit(1);
+            }
+        } catch (IOException e) {
+            System.err.println("Password file missing. Exiting.");
+            System.exit(1);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
     }
 }

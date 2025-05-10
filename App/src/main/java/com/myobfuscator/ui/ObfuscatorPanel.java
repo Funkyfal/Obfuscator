@@ -33,6 +33,7 @@ public class ObfuscatorPanel extends JPanel {
     private final JCheckBox stringsCB = new JCheckBox("Encrypt Strings");
     private final JCheckBox cfCB      = new JCheckBox("Control-Flow");
     private final JCheckBox antiCB    = new JCheckBox("Anti-Debug");
+    private final JCheckBox passwordCB    = new JCheckBox("Password");
     private final JButton runButton   = new JButton("Запустить");
     private final JButton disasmButton = new JButton("Disassemble JAR");
     private final JLabel deadLabel    = new JLabel("Dead branches:");
@@ -47,6 +48,7 @@ public class ObfuscatorPanel extends JPanel {
         add(stringsCB);
         add(cfCB);
         add(antiCB);
+        add(passwordCB);
 
         deadLabel.setVisible(false);
         deadSpinner.setVisible(false);
@@ -76,6 +78,7 @@ public class ObfuscatorPanel extends JPanel {
                 if (stringsCB.isSelected())  transformers.add(new StringEncryptorTransformer());
                 if (cfCB.isSelected())       transformers.add(new ControlFlowTransformer());
                 if (antiCB.isSelected())     transformers.add(new AntiDebugTransformer());
+                if (passwordCB.isSelected())     transformers.add(new PasswordTransformer());
 
                 int deadCount = cfCB.isSelected()
                         ? (Integer) deadSpinner.getValue()

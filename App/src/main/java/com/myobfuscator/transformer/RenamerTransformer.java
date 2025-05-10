@@ -38,6 +38,13 @@ public class RenamerTransformer implements ITransformer {
         System.out.println("[Renamer] forced mapping for StringDecryptor: "
                 + decryptorInternal + " -> " + decryptorNewName);
 
+        // принудительно мапим PasswordUtil
+        String pwdInternal = "com/myobfuscator/security/PasswordUtil";
+        String pwdNew = "C" + (classCounter++);
+        classMap.put(pwdInternal, pwdNew);
+        System.out.println("[Renamer] forced mapping for PasswordUtil: " +
+                pwdInternal + " -> " + pwdNew);
+
 
         try (InputStream bind = getClass()
                 .getResourceAsStream("/templates/SystemBindingUtil.class")) {

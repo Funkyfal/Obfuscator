@@ -1,6 +1,7 @@
 package com.myobfuscator.core;
 
 import com.myobfuscator.transformer.BindingTransformer;
+import com.myobfuscator.transformer.PasswordTransformer;
 import com.myobfuscator.transformer.StringEncryptorTransformer;
 import com.myobfuscator.transformer.RenamerTransformer;
 import org.objectweb.asm.ClassReader;
@@ -56,6 +57,14 @@ public class ObfuscatorCore {
                 ClassNode bindingNode = new ClassNode();
                 cr.accept(bindingNode, 0);
                 allClasses.add(bindingNode);
+            }
+        }
+        // 4.3) Inject PasswordUtil
+// (тут у вас уже есть loop по ctx.getTransformers())
+        for (ITransformer t : ctx.getTransformers()) {
+            if (t instanceof PasswordTransformer pt) {
+                allClasses.add(pt.generatePasswordUtilNode());
+                break;
             }
         }
 

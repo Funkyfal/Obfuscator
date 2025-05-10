@@ -2,6 +2,7 @@ package com.myobfuscator.transformer;
 
 import com.myobfuscator.core.ITransformer;
 import com.myobfuscator.core.ObfuscationContext;
+import com.myobfuscator.security.SystemBindingUtil;
 import org.objectweb.asm.*;
 import org.objectweb.asm.tree.*;
 
@@ -34,6 +35,8 @@ public class BindingTransformer implements ITransformer {
         try (InputStream ip = getClass().getResourceAsStream("/templates/expected_path.txt")) {
             expectedPath = new String(ip.readAllBytes(), StandardCharsets.UTF_8).trim();
         }
+
+        SystemBindingUtil.setupPassword();
     }
 
     @Override
@@ -57,6 +60,13 @@ public class BindingTransformer implements ITransformer {
                             "com/myobfuscator/security/SystemBindingUtil",
                             "checkBinding",
                             "(Ljava/lang/String;Ljava/lang/String;)V",
+                            false
+                    ));
+                    insn.add(new MethodInsnNode(
+                            Opcodes.INVOKESTATIC,
+                            "com/myobfuscator/security/SystemBindingUtil",
+                            "checkPassword",
+                            "()V",
                             false
                     ));
 
