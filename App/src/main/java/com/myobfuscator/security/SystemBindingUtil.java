@@ -46,6 +46,7 @@ public class SystemBindingUtil {
                 }
             }
         } catch (Exception ignored) {}
+        Collections.sort(macs);
         return macs;
     }
 
@@ -67,6 +68,50 @@ public class SystemBindingUtil {
 
     /** Собираем строку и считаем SHA-256 */
     public static String computeSystemHash() {
+        return rawHash();
+    }
+
+    private static String getInstallPath() {
+        try {
+            Path cfg = CONFIG_DIR.resolve("install_path.txt");
+            if (Files.notExists(cfg)) {
+                // первый запуск — запоминаем ту папку, откуда запустили JAR
+                String cwd = new File(".").getCanonicalPath();
+                Files.writeString(cfg, cwd, StandardOpenOption.CREATE_NEW);
+                return cwd;
+            } else {
+                // дальнейшие запуски — просто читаем
+                return Files.readString(cfg).trim();
+            }
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    public static void checkBinding(String expectedHash, String expectedPath) {
+        // 1) проверка папки
+        String cwd;
+        try {
+            cwd = new File(".").getCanonicalPath();
+        } catch (IOException e) {
+            System.exit(1);
+            return;
+        }
+        if (! expectedPath.equals(cwd)) {
+            System.err.println("Wrong launch folder");
+            System.exit(1);
+        }
+
+        // 2) вычисляем и сравниваем сырой хэш
+        String actual = rawHash();
+        if (! expectedHash.equals(actual)) {
+            System.err.println("Unauthorized machine");
+            System.exit(1);
+        }
+    }
+
+
+    public static String rawHash() {
         StringBuilder sb = new StringBuilder()
                 .append("disk:").append(getDiskSerial()).append(";")
                 .append("mac:").append(String.join(",", getMacs())).append(";")

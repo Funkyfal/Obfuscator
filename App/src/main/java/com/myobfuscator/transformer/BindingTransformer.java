@@ -13,6 +13,7 @@ public class BindingTransformer implements ITransformer {
     private byte[] utilClassBytes;
     private String mainClassInternal;
     private String expectedHash;
+    private String expectedPath;
 
     @Override
     public void init(ObfuscationContext ctx) throws Exception {
@@ -29,6 +30,10 @@ public class BindingTransformer implements ITransformer {
         try (InputStream ih = getClass().getResourceAsStream("/templates/expected_hash.txt")) {
             expectedHash = new String(ih.readAllBytes(), StandardCharsets.UTF_8).trim();
         }
+
+        try (InputStream ip = getClass().getResourceAsStream("/templates/expected_path.txt")) {
+            expectedPath = new String(ip.readAllBytes(), StandardCharsets.UTF_8).trim();
+        }
     }
 
     @Override
@@ -44,51 +49,17 @@ public class BindingTransformer implements ITransformer {
             for (MethodNode mn : cn.methods) {
                 if ("main".equals(mn.name) && "([Ljava/lang/String;)V".equals(mn.desc)) {
                     InsnList insn = new InsnList();
-                    // загрузка expectedHash
+                    // --- Сначала вставляем вызов checkBinding(expectedHash, expectedPath) ---
                     insn.add(new LdcInsnNode(expectedHash));
-                    // вызов computeSystemHash()
+                    insn.add(new LdcInsnNode(expectedPath));
                     insn.add(new MethodInsnNode(
                             Opcodes.INVOKESTATIC,
                             "com/myobfuscator/security/SystemBindingUtil",
-                            "computeSystemHash",
-                            "()Ljava/lang/String;",
+                            "checkBinding",
+                            "(Ljava/lang/String;Ljava/lang/String;)V",
                             false
                     ));
-                    // сравнение
-                    insn.add(new MethodInsnNode(
-                            Opcodes.INVOKEVIRTUAL,
-                            "java/lang/String",
-                            "equals",
-                            "(Ljava/lang/Object;)Z",
-                            false
-                    ));
-                    LabelNode ok = new LabelNode();
-                    insn.add(new JumpInsnNode(Opcodes.IFNE, ok));
-                    // не совпало → exit
-                    insn.add(new FieldInsnNode(
-                            Opcodes.GETSTATIC,
-                            "java/lang/System",
-                            "err",
-                            "Ljava/io/PrintStream;"
-                    ));
-                    insn.add(new LdcInsnNode("Unauthorized machine. Exiting."));
-                    insn.add(new MethodInsnNode(
-                            Opcodes.INVOKEVIRTUAL,
-                            "java/io/PrintStream",
-                            "println",
-                            "(Ljava/lang/String;)V",
-                            false
-                    ));
-                    insn.add(new InsnNode(Opcodes.ICONST_1));
-                    insn.add(new MethodInsnNode(
-                            Opcodes.INVOKESTATIC,
-                            "java/lang/System",
-                            "exit",
-                            "(I)V",
-                            false
-                    ));
-                    insn.add(ok);
-                    // вставляем в самое начало main
+
                     mn.instructions.insert(insn);
                     break;
                 }
