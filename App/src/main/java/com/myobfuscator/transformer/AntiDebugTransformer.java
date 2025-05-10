@@ -15,6 +15,7 @@ public class AntiDebugTransformer implements ITransformer {
     private String encryptedArg;       // Base64(AES(literal)) или null
     private final String plainArg = "-agentlib:jdwp";  // запасная константа
     private boolean useDecryption;     // true, только если encryptCipher != null
+    private String decryptorOwner;
 
     @Override
     public void init(ObfuscationContext ctx) throws Exception {
@@ -35,10 +36,26 @@ public class AntiDebugTransformer implements ITransformer {
             // Без шифрования — будем вставлять plainArg
             this.useDecryption  = false;
         }
+
+        // 2) Вычислить, под каким именем теперь будет StringDecryptor
+        String original = "com/myobfuscator/util/StringDecryptor";
+        decryptorOwner = original;
+        for (ITransformer t : ctx.getTransformers()) {
+            if (t instanceof RenamerTransformer ren) {
+                String mapped = ren.getClassMap().get(original);
+                if (mapped != null) decryptorOwner = mapped;
+                break;
+            }
+        }
     }
 
     @Override
     public void transform(ClassNode classNode) {
+        if (classNode.name.equals(decryptorOwner)
+                || classNode.name.equals("com/myobfuscator/security/SystemBindingUtil")) {
+            return;
+        }
+
         for (MethodNode m : classNode.methods) {
             if (m.instructions == null || m.instructions.size() == 0) continue;
             if ((m.access & (Opcodes.ACC_ABSTRACT|Opcodes.ACC_NATIVE)) != 0) continue;
@@ -81,10 +98,11 @@ public class AntiDebugTransformer implements ITransformer {
             list.add(new LdcInsnNode(encryptedArg));
             list.add(new MethodInsnNode(
                     Opcodes.INVOKESTATIC,
-                    "com/myobfuscator/util/StringDecryptor",
+                    decryptorOwner,
                     "decryptBase64",
                     "(Ljava/lang/String;)Ljava/lang/String;",
-                    false));
+                    false
+            ));
         } else {
             // простой литерал
             list.add(new LdcInsnNode(plainArg));
